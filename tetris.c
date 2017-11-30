@@ -4,28 +4,30 @@
 #include <unistd.h>
 #include <time.h>
 
-#define VERSION "1.20"
+#define VERSION "1.30"
 
 //#define IBMPC 1               /* for compiling on IBM PCs only */
 #define UNIX    1               /* for compiling under UNIX only (SGI/Sun) */
 
-//********************************************************************
-// 
-// TETRIS - An interactive game implemented for text screen terminals
-// 
-//            Rev  Date     Author          Description
-//            ---- -------- --------------- ----------------------
-//            1.00 05/19/92 Greg Ercolano   Initial Implementation
-//            1.20 11/29/17 Greg Ercolano   Unix support for arrow keys
-//            x.xx xx/xx/xx xxxx            xxxx
-// 
-//            Tested to compile and work on the following machines:
-//                1) IBM PC
-//                2) Silicon Graphics Indigo/PI/GTX
-//                3) Solbourne/Sun (if you do the following:)
-//                 grep -v '/*PROTOTYPE*/'<tetris.c >tetris-sun.c
-// 
-//********************************************************************
+/***********************************************************************
+ * 
+ * TETRIS - An interactive game implemented for text screen terminals
+ * 
+ *            Rev  Date     Author          Description
+ *            ---- -------- --------------- ----------------------
+ *            1.00 05/19/92 Greg Ercolano   Initial Implementation
+ *            1.20 11/29/17 Greg Ercolano   Unix support for arrow keys
+ *            1.30 11/30/17 Greg Ercolano   Code cleanup, K+R -> C99
+ *            x.xx xx/xx/xx xxxx            xxxx
+ * 
+ *            Tested to compile and work on the following machines:
+ *                1) IBM PC
+ *                2) Silicon Graphics Indigo/PI/GTX
+ *                3) Linux
+ *
+ *            NOTE: OSX uses BSD style termio; would need mods for that.
+ *
+ ***********************************************************************/
  
 /* KEYSTROKE TRANSLATIONS */
 #define DOWN   1
@@ -38,9 +40,9 @@
 #define REDRAW 8
  
 /* REDRAW MODES */
-#define CHANGED 0               /* only whats changed */
-#define WINDOW  1               /* only outer window (and score/deck) */
-#define GSCREEN 2               /* only playing screen */
+#define CHANGED 0               /* redraw only whats changed */
+#define WINDOW  1               /* redraw only outer window (and score/preview) */
+#define GSCREEN 2               /* redraw only playing screen */
 #define ALL     WINDOW|GSCREEN  /* complete redraw */
  
 /* SCREEN PIXELS */ 
@@ -48,16 +50,12 @@
 #define VTSHAPECOLOR    "\33[7m##\33[0m"
 #define WYSHAPECOLOR    "\33`6\33)##\33("
  
-/* DrawShape() OVERLAP FLAGS */
-#define OLAPCHECK       1       /* DrawShape() overlay check flag */
-#define DRAWSHAPE       0
- 
 /* SHAPE/SCREEN ORIENTATION */
 #define GAMEHEIGHT      20
 #define GAMEWIDTH       10
 #define TOPOFFSET       2
-#define DECKYOFFSET     15
-#define DECKXOFFSET     47
+#define PREVIEWYOFFSET  15
+#define PREVIEWXOFFSET  47
 #define LEFTOFFSET      20
 #define MAXSHAPES       7
 #define SHAPEMAX        4       /* width/height of shape characters */
@@ -66,15 +64,15 @@
 #define NOSHAPE         0       /* empty space */
 #define NEWSHAPE        1       /* current moving shape */
 #define OLDSHAPE        2       /* last moving shape */
-#define OLAPSHAPE       3       /* new & last shape overlap */
+#define COLLIDESHAPE    3       /* new & last shape collision */
 #define PETRIFIEDSHAPE  4       /* petrified into position */
 
 #define ABS(a)          (((a)<0)?-(a):(a))
 #define SGN(a)          (((a)<0)?(-1):1)         /* binary sign of a: -1, 1 */
 #define ZSGN(a)         (((a)<0)?(-1):(a)>0?1:0) /* sign of a: -1, 0, 1 */
  
-char *term;
- 
+/* GLOBALS */
+char *Gterm;
 char *Gwindow[] = {
 "\t\t  ......................               ",
 "\t\t  :                    :               ",
@@ -102,9 +100,9 @@ NULL
 };
  
 /* SHAPE TABLES (Indexing: [shape] [y] [rotation] [x]) */
-char *Gshapes[MAXSHAPES+1][4][4] = {            /* shape icons */
+char *Gshapes[MAXSHAPES+1][4][4] = {    /* shape icons */
   {
-    { "    ", "    ", "    ", "    " },
+    { "    ", "    ", "    ", "    " }, /* 4 rotated positions of each shape */
     { " ## ", " ## ", " ## ", " ## " },
     { " ## ", " ## ", " ## ", " ## " },
     { "    ", "    ", "    ", "    " },
@@ -154,8 +152,8 @@ char Gscreen[GAMEHEIGHT][GAMEWIDTH];    /* game screen's memory space */
 /* CLEAR THE TERMINAL SCREEN */
 void ClearScreen()
 {
-    if (term)
-        if (term[0]=='w' && term[1]=='y') {     /* WYSE TERMINALS */
+    if (Gterm)
+        if (Gterm[0]=='w' && Gterm[1]=='y') {   /* WYSE TERMINALS */
             printf("%c%c%c\r",0x1b,0x28,0x1a);  /* CLEAR */
             printf("%c",0x1e);                  /* HOME */
             /* printf("%c%c%c%c",0x1b,0x3d,0x20,0x20); */
@@ -167,41 +165,37 @@ void ClearScreen()
 }
  
 /* LOCATE THE CURSOR ON THE TERMINAL SCREEN */
-void LocateXY(int,int); /*PROTOTYPE*/
-void LocateXY(x,y)
-    int x,y;            /* x: 1-80, y:1-24 */
+void LocateXY(int x, int y)      /* x: 1-80, y:1-24 */
 {
-    if (term && term[0]=='w') {			/* WYSE TERMINALS */
+    if (Gterm && Gterm[0]=='w') {		/* WYSE TERMINALS */
 	printf("%c%c%c%c",0x1b, 0x3d, 0x20+y-1, 0x20+x-1);
     } else {
 	printf("\33[%d;%dH",y,x);		/* VT100/IBMPC/etc */
     }
 }
  
-/* DRAW A PIXEL ON THE TERMINAL AT CURRENT CURSOR POSITION */
-void DrawPixel(int);    /*PROTOTYPE*/
-void DrawPixel(on)
-    int on;             /* pixel is ON (1) or OFF (0) */
+/* DRAW A PIXEL ON THE TERMINAL AT CURRENT CURSOR POSITION
+ *     on: 1=pixel is on, 0=pixel is off
+ */
+void DrawPixel(int on)
 {
-    if (on) printf("%s",(term[0]=='w')?WYSHAPECOLOR:VTSHAPECOLOR);
+    if (on) printf("%s",(Gterm[0]=='w')?WYSHAPECOLOR:VTSHAPECOLOR);
     else    printf("%s",NOSHAPECOLOR);
 }
  
-/* DRAW THE SHAPE THAT IS 'on deck' IN THE RIGHT HAND BOX */
-void DrawOnDeck()
+/* DRAW THE SHAPE THAT IS BEING "PREVIEWED" IN THE RIGHT HAND BOX */
+void DrawPreview()
 {
     int x,y;
     for (y=0; y<SHAPEMAX; y++) {
-        LocateXY(DECKXOFFSET,y+DECKYOFFSET+1);
+        LocateXY(PREVIEWXOFFSET,y+PREVIEWYOFFSET+1);
         for (x=0; x<SHAPEMAX; x++)
             DrawPixel ((Gshapes[Gnextshape][y][0][x]=='#')?1:0);
     }
 }
  
-/* UPDATE THE SCORE IF IT CHANGED (or forced to update) */
-void UpdateScore(int);  /*PROTOTYPE*/
-void UpdateScore(force)
-    int force;
+/* UPDATE SCORE IF CHANGED (or forced to update) */
+void UpdateScore(int force)
 {
     if (force || Grows!=Glastrows) {
         LocateXY(54,22);
@@ -211,31 +205,32 @@ void UpdateScore(force)
 }
  
 /* COME UP WITH A NEW SHAPE */
-void MakeNewShape(int);        /*PROTOTYPE*/
-void MakeNewShape(update)
-    int update;
+void MakeNewShape(int update)
 {
     Grotate    = 0;
     Gx         = GAMEWIDTH/2 - SHAPEMAX/2;
     Gy         = -3;
     Gshape     = Gnextshape;
     Gnextshape = (rand() % MAXSHAPES);
-    if (update) DrawOnDeck();
+    if (update) DrawPreview();
     return;
 }
  
-/* REDRAW THE SCREEN */
-void Redraw(int);       /*PROTOTYPE*/
-void Redraw(all)
-    int all;    /* redraw everything */
+/* REDRAW THE SCREEN
+ * 'all' bit flags:
+ *     0       -- draws moving shape + score
+ *     WINDOW  -- clear screen, redraw game's Gwindow[] outline, score+preview.
+ *     GSCREEN -- redraw the Gscreen[] buffer of pieces, score+preview.
+ */
+void Redraw(int all)
 {
     int x,y,flags;
-    if (all&WINDOW) {
+    if (all & WINDOW) {
         ClearScreen();
         for (y=0; Gwindow[y]; y++)
             printf("%s\n",Gwindow[y]);
     }
-    if (all&GSCREEN) {
+    if (all & GSCREEN) {
         for (y=0; y<GAMEHEIGHT; y++) {
             LocateXY(LEFTOFFSET,y+TOPOFFSET);
             for (x=0; x<GAMEWIDTH; x++)
@@ -243,6 +238,7 @@ void Redraw(all)
         } 
     }
 
+    /* DRAW TEST SCREEN (DEBUGGING) */
     if (Gtest) {
         int x,y;
         for (y=0; y<GAMEHEIGHT; y++) {
@@ -254,12 +250,12 @@ void Redraw(all)
  
     if (all) {
         UpdateScore(1);
-        DrawOnDeck();
+        DrawPreview();
     } else {
         for (y=0; y<GAMEHEIGHT; y++) {
             for (x=0; x<GAMEWIDTH; x++) {
-                flags = Gscreen[y][x] & (OLAPSHAPE^0xffff);
-                switch(Gscreen[y][x]&OLAPSHAPE) {
+                flags = Gscreen[y][x] & (COLLIDESHAPE^0xffff);
+                switch(Gscreen[y][x]&COLLIDESHAPE) {
                     /* NEWLY DRAWN */
                     case NEWSHAPE:
                         LocateXY(x*2+LEFTOFFSET,y+TOPOFFSET);
@@ -275,7 +271,7 @@ void Redraw(all)
                         break;
  
                     /* OVERLAPPED LAST SHAPE */
-                    case OLAPSHAPE:
+                    case COLLIDESHAPE:
                         Gscreen[y][x] = OLDSHAPE|flags;
                         break;
                 }
@@ -311,7 +307,7 @@ void Clear()
                 Gscreen[y][x] = NOSHAPE;
     }
     MakeNewShape(0);     /* new shape */
-    MakeNewShape(0);     /* and another on deck */
+    MakeNewShape(0);     /* and another for preview */
     Redraw(ALL);
 }
  
@@ -324,7 +320,6 @@ void Clear()
  
 /* READ A SINGLE KEY (IBMC COMPILER)    */
 /* Returns a function number            */
-int ReadKey();  /*PROTOTYPE*/
 int ReadKey()
 {
     if (kbhit()) {
@@ -363,9 +358,10 @@ static struct termio tio,                       /* game settings */
 /* RESTORE USERS'S ORIGINAL TERMINAL SETTINGS */
 void EndTerminal()
 {
-    ioctl(fileno(stdin),TCSETA,&tiosave);       /* assert old settings */
+    ioctl(fileno(stdin), TCSETA, &tiosave);     /* assert old settings */
 }
  
+/* WHEN USER HITS ^C -- WE MUST RESET TERMINAL BACK TO NORMAL */
 void SIGINTTrap()
 {
     signal(SIGINT, SIGINTTrap);
@@ -390,7 +386,6 @@ void InitTerminal()
  
 /* READ A SINGLE KEY (under UNIX) */
 /* Returns a function number      */
-int ReadKey(void);      /*PROTOTYPE*/
 int ReadKey()
 {
     static int esc = 0;
@@ -439,12 +434,10 @@ int ReadKey()
  
 long lasttime=0;
  
-/* HANDLE TIMER FOR SHAPE DROPPING */
-/* Returns '1' if shape should be moved */
- 
-int HandleTimer(int*);  /*PROTOTYPE*/
-int HandleTimer(yforce)
-    int *yforce;
+/* HANDLE TIMER FOR SHAPE DROPPING
+ * Returns '1' if shape should be moved
+ */
+int HandleTimer(int *yforce)
 {
     long lt;
     time(&lt);
@@ -453,9 +446,7 @@ int HandleTimer(yforce)
 }
  
 /* EXIT PROGRAM WITH SCORE SHOWN */
-void Texit(int); /*PROTOTYPE*/
-void Texit(v)
-    int v;
+void Texit(int v)
 {
     ClearScreen();
     EndTerminal();
@@ -465,9 +456,7 @@ void Texit(v)
 }
 
 /* HANDLE READING BUTTON EVENTS AND UPDATING POSITION VARIS */
-int HandleButtons(int*, int*, int*, int*);      /*PROTOTYPE*/
-int HandleButtons(x, y, rotate, yforce)
-    int *x, *y, *rotate, *yforce;
+int HandleButtons(int *x, int *y, int *rotate, int *yforce)
 {
     int c, events=0;
     /* READ ALL BUFFERED KEYSTROKES */
@@ -491,39 +480,43 @@ int HandleButtons(x, y, rotate, yforce)
 #define TOP(x,y)  ((y)<0)
 #define CLIP(x,y) (TOP(x,y)||BOTT(x,y)||SIDES(x,y))
  
+/* CHECK IF SHAPE OVERLAPS OTHERS
+ * Returns
+ *      1 - hit left or right edges
+ *      2 - hit bottom or petrified boxes
+ */
+int CollisionCheck(int x, int y, int rotate)
+{
+    int t, r;
+    int err=0;
+
+    for (t=0; t<SHAPEMAX; t++) {
+	for (r=0; r<SHAPEMAX; r++) {
+	    if (Gshapes[Gshape][t][rotate][r]=='#') {
+		if (BOTT(x+r,y+t)) {
+		    return(2);	   /* hit bottom */
+		}
+		if (SIDES(x+r,y+t)) {  /* hit edge, but continue looking for */
+		    err = 1;           /* petrified shape or bottom */
+		} else {
+		    if (Gscreen[y+t][x+r]==PETRIFIEDSHAPE) {
+			return(2);     /* hit petrified shape */
+		    }
+		}
+	    }
+	}
+    }
+    return(err);
+}
+
 /* DRAWS THE SHAPE INTO THE SCREEN ARRAY
  * Returns
  *      1 - hit left or right edges
  *      2 - hit bottom or petrified boxes
  */
-int DrawShape(int,int,int,int); /*PROTOTYPE*/
-int DrawShape(x,y,rotate,olap)
-    int x,y,rotate,
-        olap;           /* overlap check ONLY - does not affect Gscreen */
+int DrawShape(int x, int y, int rotate)
 {
     int t, r;
- 
-    if (olap) {
-        int err=0;
-        for (t=0; t<SHAPEMAX; t++) {
-            for (r=0; r<SHAPEMAX; r++) {
-                if (Gshapes[Gshape][t][rotate][r]=='#') {
-                    /* HIT BOTTOM? SPECIAL CASE FOR PETRIFICATION */
-                    if (BOTT(x+r,y+t))
-                        return(2);
- 
-                    /* SHAPE HITTING SIDES? */
-                    if (SIDES(x+r,y+t))
-                        err = 1;        /* hit edge, but continue looking  */
-                    else                /* for a petrified shape or bottom */
-                        /* SHAPE HITTING PETRIFIED SHAPES? */
-                        if (Gscreen[y+t][x+r]==PETRIFIEDSHAPE)
-                            return(2);
-                }
-            }
-        }
-        return(err);
-    }
  
     /* DRAW THE SHAPE INTO THE SCREEN ARRAY */
     for (t=0; t<SHAPEMAX; t++) {
@@ -540,7 +533,6 @@ int DrawShape(x,y,rotate,olap)
 }
  
  /* PETRIFY ALL SHAPES ON THE SCREEN */
-void PetrifyScreen(void);       /*PROTOTYPE*/
 void PetrifyScreen()
 {
     int x, y;
@@ -553,7 +545,6 @@ void PetrifyScreen()
 }
  
 /* FIND COMPLETED ROWS, AND DELETE ACCORDINGLY */
-void HandleCompletedRows(void);      /*PROTOTYPE*/
 void HandleCompletedRows()
 {
     int x,y,total,trows=0, rows[GAMEHEIGHT];
@@ -593,17 +584,14 @@ void HandleCompletedRows()
 }
  
 /* HANDLE SHAPE DRAWING/COLLISIONS/CLIPPING */
-void HandleShape(int*,int*,int*,int*);   /*PROTOTYPE*/
-void HandleShape(x,y,rotate,yforce)
-    int *x, *y, *rotate, *yforce;
+void HandleShape(int *x, int *y, int *rotate, int *yforce)
 {
     /* CHECK IF SHAPE OVERLAPS ANOTHER OR SCREEN EDGE */
     /* IN REQUESTED ORIENTATION                       */
     while (1) {
-        switch(DrawShape(Gx + *x,
-	                 Gy + *y + *yforce,
-			 (Grotate + *rotate) % 4,
-                         OLAPCHECK)) {
+        switch(CollisionCheck(Gx + *x,
+	                      Gy + *y + *yforce,
+			      (Grotate + *rotate) % 4)) {
             case 1: /* LEFT/RIGHT EDGE COLLISION */
                 /* Undo button events until no collision */
                 if (*rotate!=0) { *rotate -= ZSGN(*rotate); continue; }
@@ -621,7 +609,7 @@ void HandleShape(x,y,rotate,yforce)
 
                 /* DRAW SHAPE IN ITS OLD POSITION      */
                 /* AND PETRIFY THE DISPLAY ACCORDINGLY */
-                DrawShape(Gx, Gy, (Grotate % 4), DRAWSHAPE);
+                DrawShape(Gx, Gy, (Grotate % 4));
                 PetrifyScreen();
                 HandleCompletedRows();
                 break;
@@ -633,20 +621,32 @@ void HandleShape(x,y,rotate,yforce)
     Gx      += *x;
     Gy      += (*y + *yforce);
     Grotate += *rotate;
-    DrawShape(Gx, Gy, (Grotate % 4), DRAWSHAPE);
+    DrawShape(Gx, Gy, (Grotate % 4));
 }
  
 int main()
 {
     int x,y,rotate,yforce;
  
-    fprintf(stderr,"\nTetris for terminals\nV %s - Greg Ercolano\n\n",VERSION);
-    HandleTimer(NULL);
-    while (HandleTimer(NULL)==0) { }
-    while (HandleTimer(NULL)==0) { }
+    fprintf(stderr,"\nTetris for terminals - V %s - 1992,2017 Greg Ercolano\n"
+		   "\n"
+		   "    You can either use arrow keys or VI keys to play:\n"
+		   "\n"
+		   "         Arrow Keys                    VI keys\n"
+		   "         ========================      =======================\n"
+		   "         DN/LT/RT -- move piece        jhl         -- move piece down/left/right\n"
+		   "         UP       -- rotate piece      <spacebar>  -- rotate piece\n"
+		   "\n"
+		   "    'p' to pause game, 'q' to quit.\n"
+		   "\n\n"
+		   "Hit Enter to start: ", VERSION);
+    {
+        char s[5];
+	fgets(s, sizeof(s), stdin);
+    }
 
     InitTerminal();                     /* initialize terminal */
-    term = getenv("TERM");
+    Gterm = getenv("TERM");
  
     Clear();
     while (1) {
