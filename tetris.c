@@ -392,7 +392,7 @@ int ReadKey()
     char c;
  
     if (read(fileno(stdin),&c,1)!=1)            /* read character */
-        return(0);                              /* none ready? return 0 */
+        { usleep(1000); return(0); }            /* none ready? return 0. usleep keeps cpu idle */
  
     // Handle arrow keys -- these are 3 character sequences:
     //    up=ESC[A, down=ESC[B, right=ESC[C, left=ESC[D
