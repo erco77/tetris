@@ -1,3 +1,5 @@
+// vim: autoindent tabstop=8 shiftwidth=4 expandtab softtabstop=4
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
@@ -167,10 +169,10 @@ void ClearScreen()
 /* LOCATE THE CURSOR ON THE TERMINAL SCREEN */
 void LocateXY(int x, int y)      /* x: 1-80, y:1-24 */
 {
-    if (Gterm && Gterm[0]=='w') {		/* WYSE TERMINALS */
-	printf("%c%c%c%c",0x1b, 0x3d, 0x20+y-1, 0x20+x-1);
+    if (Gterm && Gterm[0]=='w') {               /* WYSE TERMINALS */
+        printf("%c%c%c%c",0x1b, 0x3d, 0x20+y-1, 0x20+x-1);
     } else {
-	printf("\33[%d;%dH",y,x);		/* VT100/IBMPC/etc */
+        printf("\33[%d;%dH",y,x);               /* VT100/IBMPC/etc */
     }
 }
  
@@ -399,21 +401,21 @@ int ReadKey()
     //
     switch ( esc ) {
         case 0: if ( c == 0x1b ) { esc = 1; return 0; }
-	        break;   // fall thru to normal char handling
-	case 1: if ( c == '[' ) { esc = 2; return 0; }
-	        esc = 0; // reset
-		break;   // fall thru to normal char handling
-	case 2: {
-	    int ret = 0;
-	    // LocateXY(1,1); printf("GOT '%c'\n", c);
-	    switch (c) {
-		case 'A': ret = ROTATE; break;  //    UP KEY
-		case 'B': ret = DOWN;   break;  //  DOWN KEY
-		case 'C': ret = RIGHT;  break;  // RIGHT KEY
-		case 'D': ret = LEFT;   break;  //  LEFT KEY
-	    }
-	    esc = 0;	 // last char in sequence, reset
-	    return ret;
+                break;   // fall thru to normal char handling
+        case 1: if ( c == '[' ) { esc = 2; return 0; }
+                esc = 0; // reset
+                break;   // fall thru to normal char handling
+        case 2: {
+            int ret = 0;
+            // LocateXY(1,1); printf("GOT '%c'\n", c);
+            switch (c) {
+                case 'A': ret = ROTATE; break;  //    UP KEY
+                case 'B': ret = DOWN;   break;  //  DOWN KEY
+                case 'C': ret = RIGHT;  break;  // RIGHT KEY
+                case 'D': ret = LEFT;   break;  //  LEFT KEY
+            }
+            esc = 0;     // last char in sequence, reset
+            return ret;
        }
     }
 
@@ -491,20 +493,20 @@ int CollisionCheck(int x, int y, int rotate)
     int err=0;
 
     for (t=0; t<SHAPEMAX; t++) {
-	for (r=0; r<SHAPEMAX; r++) {
-	    if (Gshapes[Gshape][t][rotate][r]=='#') {
-		if (BOTT(x+r,y+t)) {
-		    return(2);	   /* hit bottom */
-		}
-		if (SIDES(x+r,y+t)) {  /* hit edge, but continue looking for */
-		    err = 1;           /* petrified shape or bottom */
-		} else {
-		    if (Gscreen[y+t][x+r]==PETRIFIEDSHAPE) {
-			return(2);     /* hit petrified shape */
-		    }
-		}
-	    }
-	}
+        for (r=0; r<SHAPEMAX; r++) {
+            if (Gshapes[Gshape][t][rotate][r]=='#') {
+                if (BOTT(x+r,y+t)) {
+                    return(2);     /* hit bottom */
+                }
+                if (SIDES(x+r,y+t)) {  /* hit edge, but continue looking for */
+                    err = 1;           /* petrified shape or bottom */
+                } else {
+                    if (Gscreen[y+t][x+r]==PETRIFIEDSHAPE) {
+                        return(2);     /* hit petrified shape */
+                    }
+                }
+            }
+        }
     }
     return(err);
 }
@@ -527,7 +529,7 @@ int DrawShape(int x, int y, int rotate)
                 Gscreen[y+t][x+r] |=
                     (Gshapes[Gshape][t][rotate][r]=='#') ? NEWSHAPE : NOSHAPE;
             }
-	}
+        }
     }
     return(0); 
 }
@@ -560,8 +562,7 @@ void HandleCompletedRows()
         int t,r,junk;
  
         /* FLASH THE ROWS */
-        for (t=1; t<3; t++)
-        {
+        for (t=1; t<3; t++) {
             for (r=0; r<trows; r++)
                 for (x=0; x<GAMEWIDTH; x++)
                     Gscreen[rows[r]][x] = (t&1) ? OLDSHAPE : NEWSHAPE;
@@ -590,8 +591,8 @@ void HandleShape(int *x, int *y, int *rotate, int *yforce)
     /* IN REQUESTED ORIENTATION                       */
     while (1) {
         switch(CollisionCheck(Gx + *x,
-	                      Gy + *y + *yforce,
-			      (Grotate + *rotate) % 4)) {
+                              Gy + *y + *yforce,
+                              (Grotate + *rotate) % 4)) {
             case 1: /* LEFT/RIGHT EDGE COLLISION */
                 /* Undo button events until no collision */
                 if (*rotate!=0) { *rotate -= ZSGN(*rotate); continue; }
@@ -626,24 +627,23 @@ void HandleShape(int *x, int *y, int *rotate, int *yforce)
  
 int main()
 {
+    char s[5];
     int x,y,rotate,yforce;
  
-    fprintf(stderr,"\nTetris for terminals - V %s - 1992,2017 Greg Ercolano\n"
-		   "\n"
-		   "    You can either use arrow keys or VI keys to play:\n"
-		   "\n"
-		   "         Arrow Keys                    VI keys\n"
-		   "         ========================      =======================\n"
-		   "         DN/LT/RT -- move piece        jhl         -- move piece down/left/right\n"
-		   "         UP       -- rotate piece      <spacebar>  -- rotate piece\n"
-		   "\n"
-		   "    'p' to pause game, 'q' to quit.\n"
-		   "\n\n"
-		   "Hit Enter to start: ", VERSION);
-    {
-        char s[5];
-	fgets(s, sizeof(s), stdin);
-    }
+    fprintf(stderr,
+        "\nTetris for terminals - V %s - 1992,2017 Greg Ercolano\n"
+        "\n"
+        "  You can either use arrow keys or VI keys to play:\n"
+        "\n"
+        "    Arrow Keys                 VI keys\n"
+        "    ========================   =======================\n"
+        "    DN/LT/RT -- move piece     jhl     -- move piece down/left/right\n"
+        "    UP       -- rotate piece   <space> -- rotate piece\n"
+        "\n"
+        "    'p' to pause game, 'q' to quit.\n"
+        "\n\n"
+        "Hit Enter to start: ", VERSION);
+    fgets(s, sizeof(s), stdin);
 
     InitTerminal();                     /* initialize terminal */
     Gterm = getenv("TERM");
@@ -653,10 +653,10 @@ int main()
         x = y = rotate = yforce = 0;
  
         HandleTimer(&yforce);           /* forces piece down */
-        HandleButtons(&x,&y,&rotate,&yforce);
-        if (x||y||rotate||yforce) {
-            HandleShape(&x,&y,&rotate,&yforce);
-            Redraw(CHANGED);    /* redraw only if something changed */
+        HandleButtons(&x, &y, &rotate, &yforce);
+        if ( x || y || rotate || yforce) {
+            HandleShape(&x, &y, &rotate, &yforce);
+            Redraw(CHANGED);            /* redraw only if something changed */
         }
     }
     return 0;
