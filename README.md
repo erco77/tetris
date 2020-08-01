@@ -9,7 +9,7 @@ To run the game:
 
         ./tetris
 
-Here's a sample game play screen:
+Here's a sample game play screen, shown running in ![cool retro terminal](https://github.com/Swordfish90/cool-retro-term):
 ![screenshot](https://user-images.githubusercontent.com/6484779/87254182-86142780-c435-11ea-89f4-02917d545e36.jpg)
 
 Here's the help screen when you first start:

@@ -4,4 +4,7 @@ tetris: tetris.c
 clean: FORCE
 	(rm tetris; exit 0)
 
+commit: FORCE
+	git commit -a
+
 FORCE:
