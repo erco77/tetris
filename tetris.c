@@ -1,5 +1,5 @@
-// vim: autoindent tabstop=8 shiftwidth=4 expandtab softtabstop=4
-
+/* vim: autoindent tabstop=8 shiftwidth=4 expandtab softtabstop=4
+ */
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
@@ -8,7 +8,7 @@
 
 #define VERSION "1.30"
 
-//#define IBMPC 1               /* for compiling on IBM PCs only */
+/*#define IBMPC 1 */            /* for compiling on IBM PCs only */
 #define UNIX    1               /* for compiling under UNIX only (SGI/Sun) */
 
 /***********************************************************************
@@ -76,28 +76,28 @@
 /* GLOBALS */
 char *Gterm;
 char *Gwindow[] = {
-"\t\t  ......................               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :               ",
-"\t\t  :                    :     ..........",
-"\t\t  :                    :     :        :",
-"\t\t  :                    :     :        :",
-"\t\t  :                    :     :        :",
-"\t\t  :                    :     :        :",
-"\t\t  :                    :     :        :",
-"\t\t  :                    :     :        :",
-"\t\t  :                    :     :........:",
-"\t\t  :                    :               ",
-"\t\t  :....................:     Rows =    ",
+"\t\t ::::::::::::::::::::::::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::              ",
+"\t\t ::                    ::    ..........",
+"\t\t ::                    ::    :        :",
+"\t\t ::                    ::    :        :",
+"\t\t ::                    ::    :        :",
+"\t\t ::                    ::    :        :",
+"\t\t ::                    ::    :        :",
+"\t\t ::                    ::    :        :",
+"\t\t ::                    ::    :........:",
+"\t\t ::                    ::              ",
+"\t\t ::::::::::::::::::::::::    Rows =    ",
 NULL
 };
  
@@ -192,7 +192,7 @@ void DrawPreview()
     for (y=0; y<SHAPEMAX; y++) {
         LocateXY(PREVIEWXOFFSET,y+PREVIEWYOFFSET+1);
         for (x=0; x<SHAPEMAX; x++)
-            DrawPixel ((Gshapes[Gnextshape][y][0][x]=='#')?1:0);
+            DrawPixel( (Gshapes[Gnextshape][y][0][x]=='#') ? 1 : 0 );
     }
 }
  
@@ -227,11 +227,19 @@ void MakeNewShape(int update)
 void Redraw(int all)
 {
     int x,y,flags;
+
+    /* REDRAW WINDOW
+     *    Outline for game + preview + "Rows ="
+     */
     if (all & WINDOW) {
         ClearScreen();
         for (y=0; Gwindow[y]; y++)
             printf("%s\n",Gwindow[y]);
     }
+
+    /* REDRAW SCREEN BUFFER
+     *    Redraws all pieces
+     */
     if (all & GSCREEN) {
         for (y=0; y<GAMEHEIGHT; y++) {
             LocateXY(LEFTOFFSET,y+TOPOFFSET);
@@ -396,25 +404,25 @@ int ReadKey()
     if (read(fileno(stdin),&c,1)!=1)            /* read character */
         { usleep(1000); return(0); }            /* none ready? return 0. usleep keeps cpu idle */
  
-    // Handle arrow keys -- these are 3 character sequences:
-    //    up=ESC[A, down=ESC[B, right=ESC[C, left=ESC[D
-    //
+    /* Handle arrow keys -- these are 3 character sequences:
+     *    up=ESC[A, down=ESC[B, right=ESC[C, left=ESC[D
+     */
     switch ( esc ) {
         case 0: if ( c == 0x1b ) { esc = 1; return 0; }
-                break;   // fall thru to normal char handling
+                break;     /* fall thru to normal char handling */
         case 1: if ( c == '[' ) { esc = 2; return 0; }
-                esc = 0; // reset
-                break;   // fall thru to normal char handling
+                esc = 0;   /* reset */
+                break;     /* fall thru to normal char handling */
         case 2: {
             int ret = 0;
-            // LocateXY(1,1); printf("GOT '%c'\n", c);
+            /* LocateXY(1,1); printf("GOT '%c'\n", c); */
             switch (c) {
-                case 'A': ret = ROTATE; break;  //    UP KEY
-                case 'B': ret = DOWN;   break;  //  DOWN KEY
-                case 'C': ret = RIGHT;  break;  // RIGHT KEY
-                case 'D': ret = LEFT;   break;  //  LEFT KEY
+                case 'A': ret = ROTATE; break;  /*    UP KEY */
+                case 'B': ret = DOWN;   break;  /*  DOWN KEY */
+                case 'C': ret = RIGHT;  break;  /* RIGHT KEY */
+                case 'D': ret = LEFT;   break;  /*  LEFT KEY */
             }
-            esc = 0;     // last char in sequence, reset
+            esc = 0;     /* last char in sequence, reset */
             return ret;
        }
     }
@@ -496,7 +504,7 @@ int CollisionCheck(int x, int y, int rotate)
         for (r=0; r<SHAPEMAX; r++) {
             if (Gshapes[Gshape][t][rotate][r]=='#') {
                 if (BOTT(x+r,y+t)) {
-                    return(2);     /* hit bottom */
+                    return(2);         /* hit bottom */
                 }
                 if (SIDES(x+r,y+t)) {  /* hit edge, but continue looking for */
                     err = 1;           /* petrified shape or bottom */
@@ -538,8 +546,10 @@ int DrawShape(int x, int y, int rotate)
 void PetrifyScreen()
 {
     int x, y;
-    /* THIS PETRIFIES ANY OLD/OVERLAP DATA INTO PLACE */
-    /* (ie. the last drawn shape) */
+
+    /* THIS PETRIFIES ANY OLD/OVERLAP DATA INTO PLACE
+     * (ie. the last drawn shape)
+     */
     for (y=0; y<GAMEHEIGHT; y++)
         for (x=0; x<GAMEWIDTH; x++)
             Gscreen[y][x] = (Gscreen[y][x]) ? PETRIFIEDSHAPE : NOSHAPE;
@@ -550,6 +560,8 @@ void PetrifyScreen()
 void HandleCompletedRows()
 {
     int x,y,total,trows=0, rows[GAMEHEIGHT];
+
+    /* Find total completed rows (trows) */
     for (y=0; y<GAMEHEIGHT; y++) {
         for (x=0,total=GAMEWIDTH; x<GAMEWIDTH; x++) {
             if (Gscreen[y][x]==NOSHAPE) break;
@@ -558,6 +570,7 @@ void HandleCompletedRows()
         if (total==0) { rows[trows++] = y; }
     }
  
+    /* Found completed rows? Handle.. */
     if (trows) {
         int t,r,junk;
  
@@ -587,8 +600,8 @@ void HandleCompletedRows()
 /* HANDLE SHAPE DRAWING/COLLISIONS/CLIPPING */
 void HandleShape(int *x, int *y, int *rotate, int *yforce)
 {
-    /* CHECK IF SHAPE OVERLAPS ANOTHER OR SCREEN EDGE */
-    /* IN REQUESTED ORIENTATION                       */
+    /* CHECK IF SHAPE TOUCHES OTHERS OR SCREEN BOTTOM IN REQUESTED ORIENTATION
+     */
     while (1) {
         switch(CollisionCheck(Gx + *x,
                               Gy + *y + *yforce,
@@ -608,8 +621,7 @@ void HandleShape(int *x, int *y, int *rotate, int *yforce)
 
                 if (Gy<1) Texit(1);         /* YOU DIED */
 
-                /* DRAW SHAPE IN ITS OLD POSITION      */
-                /* AND PETRIFY THE DISPLAY ACCORDINGLY */
+                /* Draw shape in old position and petrify accordingly */
                 DrawShape(Gx, Gy, (Grotate % 4));
                 PetrifyScreen();
                 HandleCompletedRows();
@@ -645,13 +657,12 @@ int main()
         "Hit Enter to start: ", VERSION);
     fgets(s, sizeof(s), stdin);
 
-    InitTerminal();                     /* initialize terminal */
+    InitTerminal();                     /* init termios */
     Gterm = getenv("TERM");
  
     Clear();
     while (1) {
         x = y = rotate = yforce = 0;
- 
         HandleTimer(&yforce);           /* forces piece down */
         HandleButtons(&x, &y, &rotate, &yforce);
         if ( x || y || rotate || yforce) {
@@ -661,4 +672,3 @@ int main()
     }
     return 0;
 }
- 
