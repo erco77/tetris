@@ -72,7 +72,7 @@
 #define ABS(a)          (((a)<0)?-(a):(a))
 #define SGN(a)          (((a)<0)?(-1):1)         /* binary sign of a: -1, 1 */
 #define ZSGN(a)         (((a)<0)?(-1):(a)>0?1:0) /* sign of a: -1, 0, 1 */
- 
+
 /* GLOBALS */
 char *Gterm;
 char *Gwindow[] = {
@@ -402,7 +402,7 @@ int ReadKey()
     char c;
  
     if (read(fileno(stdin),&c,1)!=1)            /* read character */
-        { usleep(1000); return(0); }            /* none ready? return 0. usleep keeps cpu idle */
+        { usleep(500); return(0); }            /* none ready? return 0. usleep keeps cpu idle */
  
     /* Handle arrow keys -- these are 3 character sequences:
      *    up=ESC[A, down=ESC[B, right=ESC[C, left=ESC[D
@@ -556,6 +556,29 @@ void PetrifyScreen()
     MakeNewShape(1);
 }
  
+/* FLASH THE ROWS */
+void FlashCompletedRows(int *rows, int trows)
+{
+    int x,t,r;
+    for (t=1; t<3; t++) {   /* off-on-off */
+        for (r=0; r<trows; r++)
+            for (x=0; x<GAMEWIDTH; x++)
+                Gscreen[rows[r]][x] = (t&1) ? OLDSHAPE : NEWSHAPE;
+        Redraw(CHANGED);
+        usleep(300000);     /* approx 1/3 sec delay */
+    }
+}
+
+/* DELETE THE COMPLETED ROWS */
+void DeleteCompletedRows(int *rows, int trows)
+{
+    int x,y,t;
+    for (t=0; t<trows; t++)
+        for(y=rows[t]; y>0; y--)
+            for (x=0; x<GAMEWIDTH; x++)
+                Gscreen[y][x] = Gscreen[y-1][x];    /* line above */
+}
+
 /* FIND COMPLETED ROWS, AND DELETE ACCORDINGLY */
 void HandleCompletedRows()
 {
@@ -572,23 +595,8 @@ void HandleCompletedRows()
  
     /* Found completed rows? Handle.. */
     if (trows) {
-        int t,r,junk;
- 
-        /* FLASH THE ROWS */
-        for (t=1; t<3; t++) {
-            for (r=0; r<trows; r++)
-                for (x=0; x<GAMEWIDTH; x++)
-                    Gscreen[rows[r]][x] = (t&1) ? OLDSHAPE : NEWSHAPE;
-            Redraw(CHANGED);
-            while (0==HandleTimer(&junk)) { }
-        }
- 
-        /* DELETE THE COMPLETED ROWS */
-        for (t=0; t<trows; t++)
-            for(y=rows[t]; y>0; y--)
-                for (x=0; x<GAMEWIDTH; x++)
-                    Gscreen[y][x] = Gscreen[y-1][x];    /* line above */
- 
+        FlashCompletedRows(rows, trows);    /* briefly flashes completed rows on+off */
+        DeleteCompletedRows(rows, trows);   /* removes completed rows */
         Redraw(GSCREEN);
         Grows += trows;
     }
@@ -663,7 +671,7 @@ int main()
     Clear();
     while (1) {
         x = y = rotate = yforce = 0;
-        HandleTimer(&yforce);           /* forces piece down */
+        HandleTimer(&yforce);           /* forces piece downward by clock time */
         HandleButtons(&x, &y, &rotate, &yforce);
         if ( x || y || rotate || yforce) {
             HandleShape(&x, &y, &rotate, &yforce);
