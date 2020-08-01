@@ -20,6 +20,7 @@
  *            1.00 05/19/92 Greg Ercolano   Initial Implementation
  *            1.20 11/29/17 Greg Ercolano   Unix support for arrow keys
  *            1.30 11/30/17 Greg Ercolano   Code cleanup, K+R -> C99
+ *            1.31 08/01/20 Greg Ercolano   Slightly faster row flash
  *            x.xx xx/xx/xx xxxx            xxxx
  * 
  *            Tested to compile and work on the following machines:
