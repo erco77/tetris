@@ -5,7 +5,7 @@
 #include <signal.h>
 #include <time.h>
 
-#define VERSION "1.32"
+#define VERSION "1.33"
 
 /***********************************************************************
  *
@@ -17,13 +17,15 @@
  *     1.20 11/29/17 Greg Ercolano   Unix support for arrow keys
  *     1.30 11/30/17 Greg Ercolano   Code cleanup, K+R -> C99
  *     1.31 08/01/20 Greg Ercolano   Slightly faster row flash
- *     1.32 12/04/21 Greg Ercolano   Windows 10 DOS term support
+ *     1.32 12/05/21 Greg Ercolano   Windows 10 DOS term support
+ *     1.33 12/05/21 Greg Ercolano   MacOS BSD term support
  *     x.xx xx/xx/xx xxxx            xxxx
  *
  *     Tested to compile and work on the following machines:
  *
  *         1) Linux (make tetris)
- *         2) Microsoft Windows 10 + Visual Studio command line: (cl tetris.c)
+ *         2) MacOS (make tetris)
+ *         3) Microsoft Windows 10 + Visual Studio command line: (make.bat tetris)
  *
  *     NOTE: OSX uses BSD style termio; would need mods for that.
  *
@@ -34,7 +36,6 @@
     #include <windows.h>                /* Sleep(msec) */
     #include <conio.h>                  /* _kbhit() */
     #define USLEEP(val) Sleep(val/1000) /* microsecs -> millisec */
-    DWORD old_cmode = 0;
 #else
     #include <unistd.h>                 /* usleep() */
     #define USLEEP(val) usleep(val)     /* microsecs */
@@ -332,143 +333,15 @@ void Clear(void)
 }
 
 #ifdef _WIN32
-/*** MICROSOFT WINDOWS 10 and up                                                ***
- ***     Only in Windows 10 did Microsoft Windows start supporting ANSI/VT100   ***
- ***     escape sequences (like it used to in old DOS days w/ANSI.SYS)          ***/
+#include "tetris-win32.c"
+#endif
 
-/* READ A SINGLE KEY
- *     Returns a function number
- */
-int ReadKey(void)
-{
-    if ( !_kbhit() ) return 0;
-    switch(getch()) {
-	case  'q':
-	case 0x1b: return(QUIT);
-	case  'j': return(DOWN);
-	case  'h': return(LEFT);
-	case  'l': return(RIGHT);
-	case  'p': return(PAUSE);
-	case  'z': return(TEST);
-	case  ' ': return(ROTATE);
-	case  'r': return(REDRAW);
-	case 0:     /* old DOS: extended key */
-	case 224:   /* Win10: extended key (up/dn/lt/rt) */
-	    switch(getch()) {
-		case 0x48: return(ROTATE);
-		case 0x50: return(DOWN);
-		case 0x4b: return(LEFT);
-		case 0x4d: return(RIGHT);
-		default: break;
-	    }
-	    break;
-    }
-    return(0);
-}
+#ifdef __APPLE__
+#include "tetris-bsd.c"
+#endif
 
-// WINDOWS 10: Enable VT100 positioning codes
-void InitTerminal(void)
-{
-    DWORD cmode = ENABLE_VIRTUAL_TERMINAL_PROCESSING    /* vt100 */
-                | ENABLE_PROCESSED_OUTPUT;              /* crlf, backspace, etc */
-    HANDLE hStdout;
-    hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-    GetConsoleMode(hStdout, &old_cmode);                /* save old modes for exit */
-    SetConsoleMode(hStdout, cmode);                     /* assert new mode */
-}
-
-void EndTerminal(void)
-{
-    HANDLE hStdout;
-    hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-    SetConsoleMode(hStdout, old_cmode);
-}
-
-#else
-/*** UNIX                                                   ***
- ***     Linux, Mac, and other unix compatible terminals.   ***
- ***                                                        ***/
-#include <stdio.h>
-#include <termio.h>
-
-static struct termio tio,                       /* game settings */
-                     tiosave;                   /* saved UNIX settings */
-
-/* RESTORE USERS'S ORIGINAL TERMINAL SETTINGS */
-void EndTerminal(void)
-{
-    ioctl(fileno(stdin), TCSETA, &tiosave);     /* assert old settings */
-}
-
-/* WHEN USER HITS ^C -- WE MUST RESET TERMINAL BACK TO NORMAL */
-void SIGINTTrap()
-{
-    signal(SIGINT, SIGINTTrap);
-    EndTerminal();
-    ClearScreen();
-    fflush(stdout);
-    fprintf(stderr,"SIGINT: terminating\n");
-    exit(1);
-}
-
-/* FORCE UNIX TO READ TERMINAL KEYS NON-BUFFERED/NO ECHO */
-void InitTerminal(void)
-{
-    ioctl(fileno(stdin),TCGETA,&tiosave);       /* save current settings */
-    ioctl(fileno(stdin),TCGETA,&tio);           /* get ready to modify */
-    tio.c_lflag     = ISIG;                     /* No cooking (sigs ok) */
-    tio.c_cc[VMIN]  = 0;                        /* No waiting */
-    tio.c_cc[VTIME] = 0;                        /* No kidding */
-    ioctl(fileno(stdin),TCSETA,&tio);           /* assert new settings */
-    signal(SIGINT, SIGINTTrap);
-}
-
-/* READ A SINGLE KEY (under UNIX) */
-/* Returns a function number      */
-int ReadKey(void)
-{
-    static int esc = 0;
-    char c;
-
-    if (read(fileno(stdin),&c,1)!=1)            /* read character */
-        { USLEEP(500); return(0); }            /* none ready? return 0. usleep keeps cpu idle */
-
-    /* Handle arrow keys -- these are 3 character sequences:
-     *    up=ESC[A, down=ESC[B, right=ESC[C, left=ESC[D
-     */
-    switch ( esc ) {
-        case 0: if ( c == 0x1b ) { esc = 1; return 0; }
-                break;     /* fall thru to normal char handling */
-        case 1: if ( c == '[' ) { esc = 2; return 0; }
-                esc = 0;   /* reset */
-                break;     /* fall thru to normal char handling */
-        case 2: {
-            int ret = 0;
-            /* LocateXY(1,1); printf("GOT '%c'\n", c); */
-            switch (c) {
-                case 'A': ret = ROTATE; break;  /*    UP KEY */
-                case 'B': ret = DOWN;   break;  /*  DOWN KEY */
-                case 'C': ret = RIGHT;  break;  /* RIGHT KEY */
-                case 'D': ret = LEFT;   break;  /*  LEFT KEY */
-            }
-            esc = 0;     /* last char in sequence, reset */
-            return ret;
-       }
-    }
-
-    esc = 0;
-    switch(c) {
-        case  'q': return(QUIT);
-        case  'j': return(DOWN);
-        case  'h': return(LEFT);
-        case  'l': return(RIGHT);
-        case  'p': return(PAUSE);
-        case  'z': return(TEST);
-        case  ' ': return(ROTATE);
-        case  'r': return(REDRAW);
-    }
-    return(0);
-}
+#if defined(__linux__) || defined(__unix__)
+#include "tetris-sysv.c"
 #endif
 
 time_t lasttime=0;
