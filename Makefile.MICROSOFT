@@ -4,5 +4,7 @@ tetris.exe: tetris.c
 
 clean: tetris.exe
 	-del tetris.exe
+	-del tetris.obj
+	-del tetris
 
 FORCE:
