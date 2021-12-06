@@ -3,35 +3,43 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
-#include <unistd.h>
 #include <time.h>
 
-#define VERSION "1.31"
-
-/*#define IBMPC 1 */            /* for compiling on IBM PCs only */
-#define UNIX    1               /* for compiling under UNIX only (SGI/Sun) */
+#define VERSION "1.32"
 
 /***********************************************************************
- * 
- * TETRIS - An interactive game implemented for text screen terminals
- * 
- *            Rev  Date     Author          Description
- *            ---- -------- --------------- ----------------------
- *            1.00 05/19/92 Greg Ercolano   Initial Implementation
- *            1.20 11/29/17 Greg Ercolano   Unix support for arrow keys
- *            1.30 11/30/17 Greg Ercolano   Code cleanup, K+R -> C99
- *            1.31 08/01/20 Greg Ercolano   Slightly faster row flash
- *            x.xx xx/xx/xx xxxx            xxxx
- * 
- *            Tested to compile and work on the following machines:
- *                1) IBM PC
- *                2) Silicon Graphics Indigo/PI/GTX
- *                3) Linux
  *
- *            NOTE: OSX uses BSD style termio; would need mods for that.
+ * TETRIS - An interactive game implemented for text screen terminals
+ *
+ *     Rev  Date     Author          Description
+ *     ---- -------- --------------- ----------------------
+ *     1.00 05/19/92 Greg Ercolano   Initial Implementation
+ *     1.20 11/29/17 Greg Ercolano   Unix support for arrow keys
+ *     1.30 11/30/17 Greg Ercolano   Code cleanup, K+R -> C99
+ *     1.31 08/01/20 Greg Ercolano   Slightly faster row flash
+ *     1.32 12/04/21 Greg Ercolano   Windows 10 DOS term support
+ *     x.xx xx/xx/xx xxxx            xxxx
+ *
+ *     Tested to compile and work on the following machines:
+ *
+ *         1) Linux (make tetris)
+ *         2) Microsoft Windows 10 + Visual Studio command line: (cl tetris.c)
+ *
+ *     NOTE: OSX uses BSD style termio; would need mods for that.
  *
  ***********************************************************************/
- 
+
+/* PLATFORM SPECIFIC */
+#ifdef _WIN32
+    #include <windows.h>                /* Sleep(msec) */
+    #include <conio.h>                  /* _kbhit() */
+    #define USLEEP(val) Sleep(val/1000) /* microsecs -> millisec */
+    DWORD old_cmode = 0;
+#else
+    #include <unistd.h>                 /* usleep() */
+    #define USLEEP(val) usleep(val)     /* microsecs */
+#endif
+
 /* KEYSTROKE TRANSLATIONS */
 #define DOWN   1
 #define LEFT   2
@@ -41,18 +49,18 @@
 #define PAUSE  6
 #define TEST   7
 #define REDRAW 8
- 
+
 /* REDRAW MODES */
 #define CHANGED 0               /* redraw only whats changed */
 #define WINDOW  1               /* redraw only outer window (and score/preview) */
 #define GSCREEN 2               /* redraw only playing screen */
 #define ALL     WINDOW|GSCREEN  /* complete redraw */
- 
-/* SCREEN PIXELS */ 
+
+/* SCREEN PIXELS */
 #define NOSHAPECOLOR    "  "
 #define VTSHAPECOLOR    "\33[7m##\33[0m"
 #define WYSHAPECOLOR    "\33`6\33)##\33("
- 
+
 /* SHAPE/SCREEN ORIENTATION */
 #define GAMEHEIGHT      20
 #define GAMEWIDTH       10
@@ -62,7 +70,7 @@
 #define LEFTOFFSET      20
 #define MAXSHAPES       7
 #define SHAPEMAX        4       /* width/height of shape characters */
- 
+
 /* GSCREEN PIXEL BIT PLANES */
 #define NOSHAPE         0       /* empty space */
 #define NEWSHAPE        1       /* current moving shape */
@@ -75,7 +83,7 @@
 #define ZSGN(a)         (((a)<0)?(-1):(a)>0?1:0) /* sign of a: -1, 0, 1 */
 
 /* GLOBALS */
-char *Gterm;
+char *Gterm = 0;
 char *Gwindow[] = {
 "\t\t ::::::::::::::::::::::::              ",
 "\t\t ::                    ::              ",
@@ -101,7 +109,7 @@ char *Gwindow[] = {
 "\t\t ::::::::::::::::::::::::    Rows =    ",
 NULL
 };
- 
+
 /* SHAPE TABLES (Indexing: [shape] [y] [rotation] [x]) */
 char *Gshapes[MAXSHAPES+1][4][4] = {    /* shape icons */
   {
@@ -141,7 +149,7 @@ char *Gshapes[MAXSHAPES+1][4][4] = {    /* shape icons */
     { "    ", "    ", "    ", "    " },
   }
 };
- 
+
 /* GLOBAL VARIABLES */
 int Gnextshape,                         /* the next shape coming */
     Gshape,                             /* current shape (0 if none selected) */
@@ -149,24 +157,25 @@ int Gnextshape,                         /* the next shape coming */
     Grows=0,                            /* completed rows (score) */
     Glastrows=0,                        /* (last displayed score) */
     Gtest=0;                            /* test mode */
- 
+
 char Gscreen[GAMEHEIGHT][GAMEWIDTH];    /* game screen's memory space */
- 
+
 /* CLEAR THE TERMINAL SCREEN */
-void ClearScreen()
+void ClearScreen(void)
 {
-    if (Gterm)
+    if (Gterm) {
         if (Gterm[0]=='w' && Gterm[1]=='y') {   /* WYSE TERMINALS */
             printf("%c%c%c\r",0x1b,0x28,0x1a);  /* CLEAR */
             printf("%c",0x1e);                  /* HOME */
             /* printf("%c%c%c%c",0x1b,0x3d,0x20,0x20); */
             return;
         }
- 
+    }
+
     /* CLEAR/HOME FOR VT100/IRIS-ANSI/IBMPC-ANSI TERMINALS */
     printf("\33[2J\33[1;1H\r");
 }
- 
+
 /* LOCATE THE CURSOR ON THE TERMINAL SCREEN */
 void LocateXY(int x, int y)      /* x: 1-80, y:1-24 */
 {
@@ -176,18 +185,18 @@ void LocateXY(int x, int y)      /* x: 1-80, y:1-24 */
         printf("\33[%d;%dH",y,x);               /* VT100/IBMPC/etc */
     }
 }
- 
+
 /* DRAW A PIXEL ON THE TERMINAL AT CURRENT CURSOR POSITION
  *     on: 1=pixel is on, 0=pixel is off
  */
 void DrawPixel(int on)
 {
-    if (on) printf("%s",(Gterm[0]=='w')?WYSHAPECOLOR:VTSHAPECOLOR);
+    if (on) printf("%s",(Gterm && Gterm[0]=='w') ? WYSHAPECOLOR : VTSHAPECOLOR);
     else    printf("%s",NOSHAPECOLOR);
 }
- 
+
 /* DRAW THE SHAPE THAT IS BEING "PREVIEWED" IN THE RIGHT HAND BOX */
-void DrawPreview()
+void DrawPreview(void)
 {
     int x,y;
     for (y=0; y<SHAPEMAX; y++) {
@@ -196,7 +205,7 @@ void DrawPreview()
             DrawPixel( (Gshapes[Gnextshape][y][0][x]=='#') ? 1 : 0 );
     }
 }
- 
+
 /* UPDATE SCORE IF CHANGED (or forced to update) */
 void UpdateScore(int force)
 {
@@ -206,7 +215,7 @@ void UpdateScore(int force)
         Glastrows = Grows;
     }
 }
- 
+
 /* COME UP WITH A NEW SHAPE */
 void MakeNewShape(int update)
 {
@@ -218,7 +227,7 @@ void MakeNewShape(int update)
     if (update) DrawPreview();
     return;
 }
- 
+
 /* REDRAW THE SCREEN
  * 'all' bit flags:
  *     0       -- draws moving shape + score
@@ -227,7 +236,8 @@ void MakeNewShape(int update)
  */
 void Redraw(int all)
 {
-    int x,y,flags;
+    int x,y;
+    char flags;
 
     /* REDRAW WINDOW
      *    Outline for game + preview + "Rows ="
@@ -246,19 +256,18 @@ void Redraw(int all)
             LocateXY(LEFTOFFSET,y+TOPOFFSET);
             for (x=0; x<GAMEWIDTH; x++)
                 DrawPixel((Gscreen[y][x]==NOSHAPE)?0:1);
-        } 
+        }
     }
 
     /* DRAW TEST SCREEN (DEBUGGING) */
     if (Gtest) {
-        int x,y;
         for (y=0; y<GAMEHEIGHT; y++) {
             LocateXY(0,y+TOPOFFSET);
             for (x=0; x<GAMEWIDTH; x++)
                 printf("%d",Gscreen[y][x]);
         }
     }
- 
+
     if (all) {
         UpdateScore(1);
         DrawPreview();
@@ -273,14 +282,14 @@ void Redraw(int all)
                         DrawPixel(1);
                         Gscreen[y][x] = OLDSHAPE|flags;
                         break;
- 
+
                     /* LEFTOVER TO BE ERASED */
                     case OLDSHAPE:
                         LocateXY(x*2+LEFTOFFSET,y+TOPOFFSET);
                         DrawPixel(0);
                         Gscreen[y][x] = NOSHAPE|flags;
                         break;
- 
+
                     /* OVERLAPPED LAST SHAPE */
                     case COLLIDESHAPE:
                         Gscreen[y][x] = OLDSHAPE|flags;
@@ -293,12 +302,12 @@ void Redraw(int all)
     LocateXY(1,1);
     fflush(stdout);
 }
- 
+
 /* CLEAR THE GAME/INITIALIZE VARIABLES */
-void Clear()
+void Clear(void)
 {
-    long lt;
- 
+    time_t lt;
+
     Gnextshape= 0;
     Gshape    = 0;
     Gx        = 0;
@@ -306,10 +315,10 @@ void Clear()
     Grotate   = 0;
     Grows     = 0;
     Glastrows = -1;
- 
+
     time(&lt);
     srand((int)lt);
- 
+
     /* CLEAR THE GAME SCREEN BITMAP */
     {
         int x,y;
@@ -321,57 +330,76 @@ void Clear()
     MakeNewShape(0);     /* and another for preview */
     Redraw(ALL);
 }
- 
-/*
- * READ A KEY FROM THE KEYBOARD
- * Returns one of:
- *    DOWN/LEFT/RIGHT/ROTATE/PAUSE/QUIT(/TEST)
+
+#ifdef _WIN32
+/*** MICROSOFT WINDOWS 10 and up                                                ***
+ ***     Only in Windows 10 did Microsoft Windows start supporting ANSI/VT100   ***
+ ***     escape sequences (like it used to in old DOS days w/ANSI.SYS)          ***/
+
+/* READ A SINGLE KEY
+ *     Returns a function number
  */
-#ifdef IBMPC
- 
-/* READ A SINGLE KEY (IBMC COMPILER)    */
-/* Returns a function number            */
-int ReadKey()
+int ReadKey(void)
 {
-    if (kbhit()) {
-        switch(getch()) {
-            case 0x1b: return(QUIT);
-            case  'j': return(DOWN);
-            case  'h': return(LEFT);
-            case  'l': return(RIGHT);
-            case  'p': return(PAUSE); 
-            case  'z': return(TEST);
-            case  'q': return(ROTATE);
-            case  ' ': return(ROTATE);
-            case  'r': return(REDRAW);
-            case NULL:
-                switch(getch()) {
-                    case 0x50: return(DOWN);
-                    case 0x4b: return(LEFT);
-                    case 0x4d: return(RIGHT);
-                }
-        }
+    if ( !_kbhit() ) return 0;
+    switch(getch()) {
+	case  'q':
+	case 0x1b: return(QUIT);
+	case  'j': return(DOWN);
+	case  'h': return(LEFT);
+	case  'l': return(RIGHT);
+	case  'p': return(PAUSE);
+	case  'z': return(TEST);
+	case  ' ': return(ROTATE);
+	case  'r': return(REDRAW);
+	case 0:     /* old DOS: extended key */
+	case 224:   /* Win10: extended key (up/dn/lt/rt) */
+	    switch(getch()) {
+		case 0x48: return(ROTATE);
+		case 0x50: return(DOWN);
+		case 0x4b: return(LEFT);
+		case 0x4d: return(RIGHT);
+		default: break;
+	    }
+	    break;
     }
-    return(NULL);
+    return(0);
 }
- 
-EndTerminal() { }
-InitTerminal() { }
-#endif
- 
-#ifdef UNIX
+
+// WINDOWS 10: Enable VT100 positioning codes
+void InitTerminal(void)
+{
+    DWORD cmode = ENABLE_VIRTUAL_TERMINAL_PROCESSING    /* vt100 */
+                | ENABLE_PROCESSED_OUTPUT;              /* crlf, backspace, etc */
+    HANDLE hStdout;
+    hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    GetConsoleMode(hStdout, &old_cmode);                /* save old modes for exit */
+    SetConsoleMode(hStdout, cmode);                     /* assert new mode */
+}
+
+void EndTerminal(void)
+{
+    HANDLE hStdout;
+    hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    SetConsoleMode(hStdout, old_cmode);
+}
+
+#else
+/*** UNIX                                                   ***
+ ***     Linux, Mac, and other unix compatible terminals.   ***
+ ***                                                        ***/
 #include <stdio.h>
 #include <termio.h>
- 
+
 static struct termio tio,                       /* game settings */
                      tiosave;                   /* saved UNIX settings */
 
 /* RESTORE USERS'S ORIGINAL TERMINAL SETTINGS */
-void EndTerminal()
+void EndTerminal(void)
 {
     ioctl(fileno(stdin), TCSETA, &tiosave);     /* assert old settings */
 }
- 
+
 /* WHEN USER HITS ^C -- WE MUST RESET TERMINAL BACK TO NORMAL */
 void SIGINTTrap()
 {
@@ -384,7 +412,7 @@ void SIGINTTrap()
 }
 
 /* FORCE UNIX TO READ TERMINAL KEYS NON-BUFFERED/NO ECHO */
-void InitTerminal()
+void InitTerminal(void)
 {
     ioctl(fileno(stdin),TCGETA,&tiosave);       /* save current settings */
     ioctl(fileno(stdin),TCGETA,&tio);           /* get ready to modify */
@@ -394,17 +422,17 @@ void InitTerminal()
     ioctl(fileno(stdin),TCSETA,&tio);           /* assert new settings */
     signal(SIGINT, SIGINTTrap);
 }
- 
+
 /* READ A SINGLE KEY (under UNIX) */
 /* Returns a function number      */
-int ReadKey()
+int ReadKey(void)
 {
     static int esc = 0;
     char c;
- 
+
     if (read(fileno(stdin),&c,1)!=1)            /* read character */
-        { usleep(500); return(0); }            /* none ready? return 0. usleep keeps cpu idle */
- 
+        { USLEEP(500); return(0); }            /* none ready? return 0. usleep keeps cpu idle */
+
     /* Handle arrow keys -- these are 3 character sequences:
      *    up=ESC[A, down=ESC[B, right=ESC[C, left=ESC[D
      */
@@ -434,7 +462,7 @@ int ReadKey()
         case  'j': return(DOWN);
         case  'h': return(LEFT);
         case  'l': return(RIGHT);
-        case  'p': return(PAUSE); 
+        case  'p': return(PAUSE);
         case  'z': return(TEST);
         case  ' ': return(ROTATE);
         case  'r': return(REDRAW);
@@ -442,27 +470,29 @@ int ReadKey()
     return(0);
 }
 #endif
- 
-long lasttime=0;
- 
+
+time_t lasttime=0;
+
 /* HANDLE TIMER FOR SHAPE DROPPING
  * Returns '1' if shape should be moved
  */
 int HandleTimer(int *yforce)
 {
-    long lt;
+    time_t lt;
     time(&lt);
     if (lt!=lasttime) { lasttime = lt; if (yforce) *yforce = 1; return(1); }
     else              { if (yforce) *yforce = 0; return(0); }
 }
- 
+
 /* EXIT PROGRAM WITH SCORE SHOWN */
-void Texit(int v)
+void Texit(char *msg, int v)
 {
-    ClearScreen();
-    EndTerminal();
+    //ClearScreen();
+    printf("\033[24H\r");
+    if ( msg ) printf("%s\n", msg);
     printf("Total rows: %d\n",Grows);
     fflush(stdout);
+    EndTerminal();
     exit(v);
 }
 
@@ -477,7 +507,7 @@ int HandleButtons(int *x, int *y, int *rotate, int *yforce)
             case  RIGHT: *x      += 1; ++events; break;
             case   DOWN: *y      += 1; ++events; break;
             case ROTATE: *rotate += 1; ++events; break;
-            case   QUIT: Texit(1);               break;
+            case   QUIT: Texit("Quit", 1);       break;
             case  PAUSE: while (!ReadKey()) { }  break;
             case   TEST: Gtest ^= 1;             break;  /* testing mode */
             case REDRAW: Redraw(ALL);            break;
@@ -485,12 +515,12 @@ int HandleButtons(int *x, int *y, int *rotate, int *yforce)
     }
     return(events);
 }
- 
+
 #define SIDES(x,y) ((x)<0||(x)>=GAMEWIDTH)
 #define BOTT(x,y) ((y)>=GAMEHEIGHT)
 #define TOP(x,y)  ((y)<0)
 #define CLIP(x,y) (TOP(x,y)||BOTT(x,y)||SIDES(x,y))
- 
+
 /* CHECK IF SHAPE OVERLAPS OTHERS
  * Returns
  *      1 - hit left or right edges
@@ -528,7 +558,7 @@ int CollisionCheck(int x, int y, int rotate)
 int DrawShape(int x, int y, int rotate)
 {
     int t, r;
- 
+
     /* DRAW THE SHAPE INTO THE SCREEN ARRAY */
     for (t=0; t<SHAPEMAX; t++) {
         for (r=0; r<SHAPEMAX; r++) {
@@ -540,11 +570,11 @@ int DrawShape(int x, int y, int rotate)
             }
         }
     }
-    return(0); 
+    return(0);
 }
- 
+
  /* PETRIFY ALL SHAPES ON THE SCREEN */
-void PetrifyScreen()
+void PetrifyScreen(void)
 {
     int x, y;
 
@@ -556,7 +586,7 @@ void PetrifyScreen()
             Gscreen[y][x] = (Gscreen[y][x]) ? PETRIFIEDSHAPE : NOSHAPE;
     MakeNewShape(1);
 }
- 
+
 /* FLASH THE ROWS */
 void FlashCompletedRows(int *rows, int trows)
 {
@@ -566,7 +596,7 @@ void FlashCompletedRows(int *rows, int trows)
             for (x=0; x<GAMEWIDTH; x++)
                 Gscreen[rows[r]][x] = (t&1) ? OLDSHAPE : NEWSHAPE;
         Redraw(CHANGED);
-        usleep(300000);     /* approx 1/3 sec delay */
+        USLEEP(300000);     /* approx 1/3 sec delay */
     }
 }
 
@@ -581,7 +611,7 @@ void DeleteCompletedRows(int *rows, int trows)
 }
 
 /* FIND COMPLETED ROWS, AND DELETE ACCORDINGLY */
-void HandleCompletedRows()
+void HandleCompletedRows(void)
 {
     int x,y,total,trows=0, rows[GAMEHEIGHT];
 
@@ -593,7 +623,7 @@ void HandleCompletedRows()
         }
         if (total==0) { rows[trows++] = y; }
     }
- 
+
     /* Found completed rows? Handle.. */
     if (trows) {
         FlashCompletedRows(rows, trows);    /* briefly flashes completed rows on+off */
@@ -601,11 +631,11 @@ void HandleCompletedRows()
         Redraw(GSCREEN);
         Grows += trows;
     }
- 
+
     /* CLEAR THE KEYBOARD BUFFER */
     while (ReadKey()) { }
 }
- 
+
 /* HANDLE SHAPE DRAWING/COLLISIONS/CLIPPING */
 void HandleShape(int *x, int *y, int *rotate, int *yforce)
 {
@@ -621,14 +651,14 @@ void HandleShape(int *x, int *y, int *rotate, int *yforce)
                 if (*x!=0)      { *x -= ZSGN(*x); continue; }
                 if (*y!=0)      { *y -= ZSGN(*y); continue; }
                 break;
-     
+
             case 2: /* BOTTOM OR PETRIFIED COLLISION */
                 /* Undo button events to avoid collision */
                 if (ABS(*rotate)!=0) { *rotate -= ZSGN(*rotate); continue; }
                 if (ABS(*x)!=0)      { *x      -= ZSGN(*x);      continue; }
                 if (ABS(*y)!=0)      { *y      -= ZSGN(*y);      continue; }
 
-                if (Gy<1) Texit(1);         /* YOU DIED */
+                if (Gy<1) Texit("YOU DIED.", 1);
 
                 /* Draw shape in old position and petrify accordingly */
                 DrawShape(Gx, Gy, (Grotate % 4));
@@ -638,19 +668,19 @@ void HandleShape(int *x, int *y, int *rotate, int *yforce)
         }
         break;
     }
- 
+
     /* APPLY THE REVISED MOVEMENTS TO THE MOVING SHAPE */
     Gx      += *x;
     Gy      += (*y + *yforce);
     Grotate += *rotate;
     DrawShape(Gx, Gy, (Grotate % 4));
 }
- 
+
 int main()
 {
     char s[5];
     int x,y,rotate,yforce;
- 
+
     fprintf(stderr,
         "\nTetris for terminals - V %s - 1992,2017 Greg Ercolano\n"
         "\n"
@@ -668,7 +698,7 @@ int main()
 
     InitTerminal();                     /* init termios */
     Gterm = getenv("TERM");
- 
+
     Clear();
     while (1) {
         x = y = rotate = yforce = 0;
@@ -679,5 +709,6 @@ int main()
             Redraw(CHANGED);            /* redraw only if something changed */
         }
     }
+    Texit("WHILE LOOP", 1);
     return 0;
 }

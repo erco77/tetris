@@ -1,0 +1,8 @@
+tetris: tetris.exe
+tetris.exe: tetris.c
+	cl tetris.c
+
+clean: tetris.exe
+	-del tetris.exe
+
+FORCE:
